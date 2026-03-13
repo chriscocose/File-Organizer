@@ -7,7 +7,7 @@ from collections import defaultdict
 # =========================
 # CONFIG
 # =========================
-SOURCE_FOLDER = "test_files"
+SOURCE_FOLDER = input("Enter the folder path to organize: ").strip()
 LOG_FOLDER = "logs"
 REPORT_FOLDER = "reports"
 
