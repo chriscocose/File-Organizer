@@ -1,21 +1,16 @@
 import os
 import shutil
 import logging
+import csv
 from datetime import datetime
 from collections import defaultdict
 
 # =========================
-# CONFIG
+# SETUP FOLDERS
 # =========================
-SOURCE_FOLDER = input("Enter the folder path to organize: ").strip()
 LOG_FOLDER = "logs"
 REPORT_FOLDER = "reports"
 
-SORT_BY = "type"  # options: "type" or "date"
-
-# =========================
-# SETUP
-# =========================
 os.makedirs(LOG_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
 
@@ -27,7 +22,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Track actions for report
+# Track report data
 report_data = defaultdict(int)
 moved_files = []
 
@@ -57,44 +52,70 @@ def get_date_folder(filepath):
     return dt.strftime("%Y-%m")
 
 
-def organize_files():
+def get_unique_destination(destination_path):
+    """
+    Prevent overwriting files by appending a timestamp if needed.
+    Example: report.pdf -> report_143520.pdf
+    """
+    if not os.path.exists(destination_path):
+        return destination_path
+
+    folder, filename = os.path.split(destination_path)
+    base, ext = os.path.splitext(filename)
+    timestamp = datetime.now().strftime("%H%M%S")
+    new_filename = f"{base}_{timestamp}{ext}"
+    return os.path.join(folder, new_filename)
+
+
+def organize_files(source_folder, sort_by="type"):
     """Scan source folder and move files into organized subfolders."""
-    if not os.path.exists(SOURCE_FOLDER):
-        print(f"Source folder '{SOURCE_FOLDER}' does not exist.")
+    if not os.path.exists(source_folder):
+        print(f"Error: The folder '{source_folder}' does not exist.")
         return
 
-    for item in os.listdir(SOURCE_FOLDER):
-        source_path = os.path.join(SOURCE_FOLDER, item)
+    files_found = False
 
+    for item in os.listdir(source_folder):
+        source_path = os.path.join(source_folder, item)
+
+        # Only process files, not folders
         if os.path.isfile(source_path):
-            if SORT_BY == "type":
+            files_found = True
+
+            if sort_by == "type":
                 target_folder_name = get_file_category(item)
-            elif SORT_BY == "date":
+            elif sort_by == "date":
                 target_folder_name = get_date_folder(source_path)
             else:
-                print("Invalid SORT_BY option. Use 'type' or 'date'.")
+                print("Invalid sort option. Use 'type' or 'date'.")
                 return
 
-            target_folder = os.path.join(SOURCE_FOLDER, target_folder_name)
+            target_folder = os.path.join(source_folder, target_folder_name)
             os.makedirs(target_folder, exist_ok=True)
 
             destination_path = os.path.join(target_folder, item)
+            final_destination = get_unique_destination(destination_path)
 
-            # Prevent overwrite issues
-            if os.path.exists(destination_path):
-                base, ext = os.path.splitext(item)
-                timestamp = datetime.now().strftime("%H%M%S")
-                new_name = f"{base}_{timestamp}{ext}"
-                destination_path = os.path.join(target_folder, new_name)
+            final_filename = os.path.basename(final_destination)
 
-            shutil.move(source_path, destination_path)
+            shutil.move(source_path, final_destination)
 
-            logging.info(f"Moved '{item}' to '{target_folder_name}'")
+            logging.info(f"Moved '{item}' to '{target_folder_name}' as '{final_filename}'")
+
             report_data[target_folder_name] += 1
-            moved_files.append(f"{item} -> {target_folder_name}")
+            moved_files.append({
+                "original_name": item,
+                "new_name": final_filename,
+                "destination_folder": target_folder_name
+            })
+
+    if not files_found:
+        print("No files found to organize.")
+    else:
+        print("Files organized successfully.")
 
 
-def generate_report():
+def generate_text_report():
     """Generate a text summary report."""
     report_path = os.path.join(REPORT_FOLDER, "summary_report.txt")
 
@@ -111,13 +132,67 @@ def generate_report():
             report.write(f"- {category}: {count}\n")
 
         report.write("\nDetailed actions:\n")
-        for entry in moved_files:
-            report.write(f"- {entry}\n")
+        for file_info in moved_files:
+            report.write(
+                f"- {file_info['original_name']} -> "
+                f"{file_info['destination_folder']} "
+                f"(saved as {file_info['new_name']})\n"
+            )
 
-    logging.info(f"Report generated at '{report_path}'")
-    print(f"Done. Report saved to: {report_path}")
+    logging.info(f"Text report generated at '{report_path}'")
+    return report_path
+
+
+def generate_csv_report():
+    """Generate a CSV report that can be opened in Excel."""
+    csv_path = os.path.join(REPORT_FOLDER, "summary_report.csv")
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Original File Name", "New File Name", "Destination Folder"])
+
+        for file_info in moved_files:
+            writer.writerow([
+                file_info["original_name"],
+                file_info["new_name"],
+                file_info["destination_folder"]
+            ])
+
+    logging.info(f"CSV report generated at '{csv_path}'")
+    return csv_path
+
+
+def print_summary():
+    """Print a summary to the console."""
+    total_files = sum(report_data.values())
+
+    print("\nOrganization Summary")
+    print("=" * 25)
+    print(f"Total files moved: {total_files}")
+
+    if total_files == 0:
+        print("No files were moved.")
+        return
+
+    for category, count in report_data.items():
+        print(f"{category}: {count} file(s)")
+
+
+def main():
+    print("=== Automated Document Organizer ===")
+    source_folder = input("Enter the folder path to organize: ").strip()
+    sort_by = input("Sort files by 'type' or 'date': ").strip().lower()
+
+    organize_files(source_folder, sort_by)
+
+    text_report = generate_text_report()
+    csv_report = generate_csv_report()
+    print_summary()
+
+    print(f"\nText report saved to: {text_report}")
+    print(f"CSV report saved to: {csv_report}")
+    print(f"Log file saved to: {log_file}")
 
 
 if __name__ == "__main__":
-    organize_files()
-    generate_report()
+    main()
